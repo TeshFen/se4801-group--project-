@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Courses - EduTrack</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100">
+    <nav class="bg-white shadow-md p-4 flex justify-between">
+        <span class="text-xl font-bold text-indigo-600">EduTrack</span>
+        <div>
+            <span id="userEmail" class="text-sm text-gray-700 mr-4"></span>
+            <button onclick="logout()" class="text-sm text-red-500">Logout</button>
+        </div>
+    </nav>
+    <div class="container mx-auto p-8">
+        <div class="mb-4">
+            <a href="/dashboard.html" class="text-indigo-600 hover:underline">&larr; Back to Dashboard</a>
+        </div>
+        <div class="flex justify-between items-center">
+            <h1 class="text-3xl font-bold">Courses</h1>
+            <button id="createCourseBtn" onclick="window.location.href='/create-course.html'"
+                class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 hidden">+ New Course</button>
+        </div>
+        <div id="courseList" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+    <script>
+        const token = localStorage.getItem('token');
+        const userJson = localStorage.getItem('user');
+        if (!token || !userJson) window.location.href = '/login.html';
+        const user = JSON.parse(userJson);
+        document.getElementById('userEmail').textContent = user.email + ' (' + user.role + ')';
+        if (user.role === 'INSTRUCTOR' || user.role === 'ADMIN') {
+            document.getElementById('createCourseBtn').classList.remove('hidden');
+        }
+
+        async function loadCourses() {
+            try {
+                const res = await fetch('/api/courses', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (!res.ok) {
+                    document.getElementById('courseList').innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Failed to load courses.</div>`;
+                    return;
+                }
+                const data = await res.json();
+                const container = document.getElementById('courseList');
+                if (data.content && data.content.length > 0) {
+                    container.innerHTML = data.content.map(c => `
+                        <div class="bg-white p-4 rounded shadow" id="course-${c.id}">
+                            <h3 class="text-lg font-bold">${c.title}</h3>
+                            <p class="text-gray-600">${c.description || 'No description'}</p>
+                            <p class="text-sm text-gray-500">Instructor: ${c.instructorName || 'N/A'}</p>
+                            <p class="text-sm text-gray-500">Start: ${new Date(c.startDate).toLocaleDateString()} – End: ${new Date(c.endDate).toLocaleDateString()}</p>
+                            <div class="mt-2 space-x-2">
+                                <a href="/course-detail.html?id=${c.id}" class="text-indigo-600 hover:underline text-sm">View Details</a>
+                                ${user.role === 'STUDENT' ? `
+                                    <button onclick="enroll(${c.id})" id="enroll-${c.id}" class="bg-green-500 text-white px-2 py-1 rounded text-sm hover:bg-green-600">Enroll</button>
+                                ` : ''}
+                                ${(user.role === 'INSTRUCTOR' || user.role === 'ADMIN') ? `<button onclick="deleteCourse(${c.id})" class="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600">Delete</button>` : ''}
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `<div class="bg-white p-4 rounded shadow"><p class="text-gray-600">No courses available.</p></div>`;
+                }
+            } catch (err) {
+                document.getElementById('courseList').innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Network error: ${err.message}</div>`;
+            }
+        }
+
+        async function enroll(courseId) {
+            if (!confirm('Are you sure you want to enroll in this course?')) return;
+            try {
+                const res = await fetch(`/api/courses/${courseId}/enroll`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    const btn = document.getElementById(`enroll-${courseId}`);
+                    if (btn) {
+                        btn.textContent = '✅ Enrolled';
+                        btn.className = 'bg-gray-400 text-white px-2 py-1 rounded text-sm cursor-not-allowed';
+                        btn.disabled = true;
+                        btn.onclick = null;
+                    }
+                    alert('Enrolled successfully!');
+                } else {
+                    const data = await res.json();
+                    alert('Enrollment failed: ' + (data.message || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Network error: ' + err.message);
+            }
+        }
+
+        async function deleteCourse(courseId) {
+            if (!confirm('Delete this course?')) return;
+            try {
+                const res = await fetch(`/api/courses/${courseId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    alert('Course deleted.');
+                    loadCourses();
+                } else {
+                    alert('Delete failed.');
+                }
+            } catch (err) {
+                alert('Network error.');
+            }
+        }
+
+        loadCourses();
+
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/login.html';
+        }
+    </script>
+</body>
+
+</html>

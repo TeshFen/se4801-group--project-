@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+<head th:replace="fragments/head :: head('Assignment Details')"></head>
+
+<body class="bg-gray-50">
+    <div th:replace="fragments/navbar :: navbar"></div>
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold" th:text="${assignment.title}"></h1>
+        <p class="text-gray-600 mt-2" th:text="${assignment.description}"></p>
+        <div class="mt-4 flex gap-2 text-sm text-gray-500">
+            <span>Due: <span th:text="${#temporals.format(assignment.deadline, 'yyyy-MM-dd HH:mm')}"></span></span>
+            <span>Max Score: <span th:text="${assignment.maxScore}"></span></span>
+        </div>
+        <div class="mt-6">
+            <!-- Student submission form -->
+            <div th:if="${role == 'STUDENT'}">
+                <h2 class="text-xl font-semibold mb-3">Submit Assignment</h2>
+                <form th:action="'/assignments/' + ${assignment.id} + '/submissions'" method="post"
+                    enctype="multipart/form-data" class="flex items-center gap-4">
+                    <input type="file" name="file" accept=".pdf,.doc,.docx,.txt" required class="border rounded-lg p-2">
+                    <button type="submit"
+                        class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition">Submit</button>
+                </form>
+            </div>
+            <!-- Instructor grading section -->
+            <div th:if="${role == 'INSTRUCTOR' or role == 'ADMIN'}">
+                <h2 class="text-xl font-semibold mt-6 mb-3">Submissions</h2>
+                <div th:if="${#lists.isEmpty(submissions)}" class="text-gray-500">No submissions yet.</div>
+                <div th:each="sub : ${submissions}"
+                    class="bg-white p-4 rounded-xl shadow mb-3 flex justify-between items-center">
+                    <div>
+                        <p class="font-medium" th:text="'Student: ' + ${sub.studentId}"></p>
+                        <p class="text-sm text-gray-500">Submitted: <span
+                                th:text="${#temporals.format(sub.submittedAt, 'yyyy-MM-dd HH:mm')}"></span></p>
+                        <p th:if="${sub.grade != null}" class="text-sm text-green-600">Grade: <span
+                                th:text="${sub.grade}"></span></p>
+                        <p th:if="${sub.feedback}" class="text-sm text-gray-500">Feedback: <span
+                                th:text="${sub.feedback}"></span></p>
+                    </div>
+                    <div th:if="${sub.grade == null}">
+                        <form th:action="'/submissions/' + ${sub.id} + '/grade'" method="post"
+                            class="flex items-center gap-2">
+                            <input type="number" name="grade" min="0" max="100" placeholder="Grade"
+                                class="w-20 border rounded p-1" required>
+                            <input type="text" name="feedback" placeholder="Feedback" class="w-40 border rounded p-1">
+                            <button type="submit"
+                                class="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 transition text-sm">Grade</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

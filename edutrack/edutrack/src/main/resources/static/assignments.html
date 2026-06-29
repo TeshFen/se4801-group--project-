@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Assignments - EduTrack</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100">
+    <nav class="bg-white shadow-md p-4 flex justify-between">
+        <span class="text-xl font-bold text-indigo-600">EduTrack</span>
+        <div>
+            <span id="userEmail" class="text-sm text-gray-700 mr-4"></span>
+            <button onclick="logout()" class="text-sm text-red-500">Logout</button>
+        </div>
+    </nav>
+    <div class="container mx-auto p-8">
+        <div class="mb-4">
+            <a href="/dashboard.html" class="text-indigo-600 hover:underline">&larr; Back to Dashboard</a>
+        </div>
+        <div class="flex justify-between items-center">
+            <h1 class="text-3xl font-bold">Assignments</h1>
+            <button id="createAssignmentBtn" onclick="window.location.href='/create-assignment.html'"
+                class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 hidden">+ New Assignment</button>
+        </div>
+        <div class="mt-4">
+            <label class="block text-sm font-medium text-gray-700">Select Course</label>
+            <select id="courseSelect" class="mt-1 block w-full p-2 border rounded" onchange="loadAssignments()">
+                <option value="">Loading courses...</option>
+            </select>
+        </div>
+        <div id="assignmentList" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+
+    <!-- Submission Modal -->
+    <div id="submitModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded shadow-lg max-w-md w-full">
+            <h2 class="text-2xl font-bold mb-4">Submit Assignment</h2>
+            <form id="submitForm">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">File (max 10MB)</label>
+                    <input type="file" id="fileInput" class="w-full p-2 border rounded" required>
+                </div>
+                <div class="flex justify-end space-x-2">
+                    <button type="button" onclick="closeSubmitModal()"
+                        class="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400">Cancel</button>
+                    <button type="submit"
+                        class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Submit</button>
+                </div>
+            </form>
+            <div id="submitMessage" class="mt-2 text-sm hidden"></div>
+        </div>
+    </div>
+
+    <!-- Grading Modal -->
+    <div id="gradeModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded shadow-lg max-w-md w-full">
+            <h2 class="text-2xl font-bold mb-4">Grade Submission</h2>
+            <form id="gradeForm">
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Submission ID</label>
+                    <input type="number" id="submissionIdInput" class="w-full p-2 border rounded" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Grade (0-100)</label>
+                    <input type="number" id="gradeInput" class="w-full p-2 border rounded" min="0" max="100" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">Feedback</label>
+                    <textarea id="feedbackInput" class="w-full p-2 border rounded" rows="3"></textarea>
+                </div>
+                <div class="flex justify-end space-x-2">
+                    <button type="button" onclick="closeGradeModal()"
+                        class="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400">Cancel</button>
+                    <button type="submit" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Submit
+                        Grade</button>
+                </div>
+            </form>
+            <div id="gradeMessage" class="mt-2 text-sm hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Auth check ---
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/login.html';
+
+        const userJson = localStorage.getItem('user');
+        if (!userJson) window.location.href = '/login.html';
+        const user = JSON.parse(userJson);
+
+        // --- Debug: log the user role ---
+        console.log('Logged-in user role:', user.role);
+
+        // --- Display user email ---
+        document.getElementById('userEmail').textContent = user.email + ' (' + user.role + ')';
+
+        // --- Show/Hide "Create Assignment" button (instructor/admin only) ---
+        if (user.role === 'INSTRUCTOR' || user.role === 'ADMIN') {
+            document.getElementById('createAssignmentBtn').classList.remove('hidden');
+        }
+
+        let currentAssignmentId = null;
+        let currentSubmissionId = null;
+        let courses = [];
+
+        // --- Load courses into dropdown ---
+        async function loadCourses() {
+            try {
+                const res = await fetch('/api/courses', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    const data = await res.json();
+                    courses = data.content || [];
+                    const select = document.getElementById('courseSelect');
+                    select.innerHTML = '<option value="">Select a course</option>';
+                    courses.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c.id;
+                        opt.textContent = c.title;
+                        select.appendChild(opt);
+                    });
+                    if (courses.length > 0) {
+                        select.value = courses[0].id;
+                        loadAssignments();
+                    }
+                }
+            } catch (err) {
+                document.getElementById('courseSelect').innerHTML = '<option value="">Error loading courses</option>';
+            }
+        }
+
+        // --- Load assignments for selected course ---
+        async function loadAssignments() {
+            const courseId = document.getElementById('courseSelect').value;
+            const container = document.getElementById('assignmentList');
+            if (!courseId) {
+                container.innerHTML = `<div class="bg-white p-4 rounded shadow"><p class="text-gray-600">Select a course to view assignments.</p></div>`;
+                return;
+            }
+            try {
+                const res = await fetch(`/api/courses/${courseId}/assignments`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    const data = await res.json();
+                    const assignments = data.content || [];
+                    if (assignments.length > 0) {
+                        // Build the HTML with conditional buttons
+                        container.innerHTML = assignments.map(a => {
+                            // Determine which buttons to show based on role
+                            let buttonsHtml = '';
+                            if (user.role === 'STUDENT') {
+                                buttonsHtml = `<button onclick="openSubmitModal(${a.id})" class="bg-green-500 text-white px-2 py-1 rounded text-sm hover:bg-green-600">Submit</button>`;
+                            }
+                            if (user.role === 'INSTRUCTOR' || user.role === 'ADMIN') {
+                                buttonsHtml += `
+                                    <button onclick="openGradeModal(${a.id})" class="bg-yellow-500 text-white px-2 py-1 rounded text-sm hover:bg-yellow-600">Grade</button>
+                                    <button onclick="deleteAssignment(${a.id})" class="bg-red-500 text-white px-2 py-1 rounded text-sm hover:bg-red-600">Delete</button>
+                                `;
+                            }
+                            return `
+                                <div class="bg-white p-4 rounded shadow">
+                                    <h3 class="text-lg font-bold">${a.title}</h3>
+                                    <p class="text-gray-600">${a.description || 'No description'}</p>
+                                    <p class="text-sm text-gray-500">Max Score: ${a.maxScore}</p>
+                                    <p class="text-sm text-gray-500">Due: ${new Date(a.deadline).toLocaleString()}</p>
+                                    <div class="mt-2 space-x-2">
+                                        ${buttonsHtml}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        container.innerHTML = `<div class="bg-white p-4 rounded shadow"><p class="text-gray-600">No assignments for this course.</p></div>`;
+                    }
+                } else {
+                    container.innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Failed to load assignments.</div>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Network error.</div>`;
+            }
+        }
+
+        // ---------- Submission ----------
+        function openSubmitModal(assignmentId) {
+            currentAssignmentId = assignmentId;
+            document.getElementById('submitModal').classList.remove('hidden');
+            document.getElementById('fileInput').value = '';
+            document.getElementById('submitMessage').classList.add('hidden');
+        }
+
+        function closeSubmitModal() {
+            document.getElementById('submitModal').classList.add('hidden');
+        }
+
+        document.getElementById('submitForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('fileInput');
+            const msg = document.getElementById('submitMessage');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                msg.className = 'mt-2 text-sm text-red-500';
+                msg.textContent = 'Please select a file.';
+                msg.classList.remove('hidden');
+                return;
+            }
+            const file = fileInput.files[0];
+            if (file.size > 10 * 1024 * 1024) {
+                msg.className = 'mt-2 text-sm text-red-500';
+                msg.textContent = 'File exceeds 10MB limit.';
+                msg.classList.remove('hidden');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch(`/api/assignments/${currentAssignmentId}/submissions`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    body: formData
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    msg.className = 'mt-2 text-sm text-green-600';
+                    msg.textContent = 'Submitted successfully!';
+                    msg.classList.remove('hidden');
+                    setTimeout(() => { closeSubmitModal(); loadAssignments(); }, 1500);
+                } else {
+                    const data = await res.json();
+                    msg.className = 'mt-2 text-sm text-red-500';
+                    msg.textContent = data.message || 'Submission failed.';
+                    msg.classList.remove('hidden');
+                }
+            } catch (err) {
+                msg.className = 'mt-2 text-sm text-red-500';
+                msg.textContent = 'Network error.';
+                msg.classList.remove('hidden');
+            }
+        });
+
+        // ---------- Grading ----------
+        function openGradeModal(assignmentId) {
+            // Prompt for submission ID (in a real app, you'd fetch a list of submissions)
+            const submissionId = prompt('Enter the submission ID to grade:');
+            if (submissionId) {
+                currentSubmissionId = parseInt(submissionId);
+                document.getElementById('gradeModal').classList.remove('hidden');
+                document.getElementById('submissionIdInput').value = currentSubmissionId;
+                document.getElementById('gradeInput').value = '';
+                document.getElementById('feedbackInput').value = '';
+                document.getElementById('gradeMessage').classList.add('hidden');
+            }
+        }
+
+        function closeGradeModal() {
+            document.getElementById('gradeModal').classList.add('hidden');
+        }
+
+        document.getElementById('gradeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const grade = document.getElementById('gradeInput').value;
+            const feedback = document.getElementById('feedbackInput').value;
+            const msg = document.getElementById('gradeMessage');
+            if (!grade || grade < 0 || grade > 100) {
+                msg.className = 'mt-2 text-sm text-red-500';
+                msg.textContent = 'Please enter a grade between 0 and 100.';
+                msg.classList.remove('hidden');
+                return;
+            }
+            try {
+                const res = await fetch(`/api/submissions/${currentSubmissionId}/grade`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ grade: parseFloat(grade), feedback })
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    msg.className = 'mt-2 text-sm text-green-600';
+                    msg.textContent = 'Grade submitted successfully!';
+                    msg.classList.remove('hidden');
+                    setTimeout(() => { closeGradeModal(); loadAssignments(); }, 1500);
+                } else {
+                    const data = await res.json();
+                    msg.className = 'mt-2 text-sm text-red-500';
+                    msg.textContent = data.message || 'Grading failed.';
+                    msg.classList.remove('hidden');
+                }
+            } catch (err) {
+                msg.className = 'mt-2 text-sm text-red-500';
+                msg.textContent = 'Network error.';
+                msg.classList.remove('hidden');
+            }
+        });
+
+        // ---------- Delete Assignment (instructor/admin) ----------
+        async function deleteAssignment(assignmentId) {
+            if (!confirm('Delete this assignment?')) return;
+            try {
+                const res = await fetch(`/api/assignments/${assignmentId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (res.ok) {
+                    alert('Assignment deleted.');
+                    loadAssignments();
+                } else {
+                    alert('Delete failed.');
+                }
+            } catch (err) {
+                alert('Network error.');
+            }
+        }
+
+        // ---------- Initialize ----------
+        loadCourses();
+
+        // ---------- Logout ----------
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/login.html';
+        }
+    </script>
+</body>
+
+</html>

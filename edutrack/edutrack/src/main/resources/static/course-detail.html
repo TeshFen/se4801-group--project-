@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Course Detail - EduTrack</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100">
+    <nav class="bg-white shadow-md p-4 flex justify-between">
+        <span class="text-xl font-bold text-indigo-600">EduTrack</span>
+        <div>
+            <span id="userEmail" class="text-sm text-gray-700 mr-4"></span>
+            <button onclick="logout()" class="text-sm text-red-500">Logout</button>
+        </div>
+    </nav>
+    <div class="container mx-auto p-8">
+        <div class="mb-4">
+            <a href="/courses.html" class="text-indigo-600 hover:underline">&larr; Back to Courses</a>
+        </div>
+        <div id="courseInfo" class="bg-white p-6 rounded shadow mb-6">
+            <h1 id="courseTitle" class="text-3xl font-bold">Loading...</h1>
+            <p id="courseDesc" class="text-gray-600 mt-2"></p>
+            <p id="courseInstructor" class="text-sm text-gray-500 mt-1"></p>
+        </div>
+        <h2 class="text-2xl font-bold mb-4">Assignments</h2>
+        <div id="assignmentList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </div>
+    <script>
+        const token = localStorage.getItem('token');
+        const userJson = localStorage.getItem('user');
+        if (!token || !userJson) window.location.href = '/login.html';
+        const user = JSON.parse(userJson);
+        document.getElementById('userEmail').textContent = user.email + ' (' + user.role + ')';
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const courseId = urlParams.get('id');
+
+        (async function init() {
+            if (!courseId) {
+                document.getElementById('courseTitle').textContent = 'No course selected.';
+                document.getElementById('assignmentList').innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Missing course ID.</div>`;
+                return;
+            }
+            await loadCourseDetail();
+            await loadAssignments();
+        })();
+
+        async function loadCourseDetail() {
+            try {
+                const res = await fetch(`/api/courses/${courseId}`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (!res.ok) {
+                    document.getElementById('courseTitle').textContent = 'Course not found.';
+                    return;
+                }
+                const c = await res.json();
+                document.getElementById('courseTitle').textContent = c.title;
+                document.getElementById('courseDesc').textContent = c.description || 'No description';
+                document.getElementById('courseInstructor').textContent = 'Instructor: ' + (c.instructorName || 'N/A');
+            } catch (err) {
+                document.getElementById('courseTitle').textContent = 'Error loading course.';
+                console.error(err);
+            }
+        }
+
+        async function loadAssignments() {
+            const container = document.getElementById('assignmentList');
+            container.innerHTML = `<div class="bg-white p-4 rounded shadow"><p class="text-gray-600">Loading assignments...</p></div>`;
+            try {
+                const res = await fetch(`/api/courses/${courseId}/assignments`, {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.status === 401 || res.status === 403) {
+                    alert('Session expired. Please login again.');
+                    logout();
+                    return;
+                }
+                if (!res.ok) {
+                    container.innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Failed to load assignments.</div>`;
+                    return;
+                }
+                const data = await res.json();
+                const assignments = data.content || [];
+                if (assignments.length > 0) {
+                    container.innerHTML = assignments.map(a => `
+                        <div class="bg-white p-4 rounded shadow">
+                            <h3 class="text-lg font-bold">${a.title}</h3>
+                            <p class="text-gray-600">${a.description || ''}</p>
+                            <p class="text-sm text-gray-500">Max Score: ${a.maxScore}</p>
+                            <p class="text-sm text-gray-500">Due: ${new Date(a.deadline).toLocaleString()}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `<div class="bg-white p-4 rounded shadow"><p class="text-gray-600">No assignments for this course.</p></div>`;
+                }
+            } catch (err) {
+                container.innerHTML = `<div class="bg-red-100 p-4 rounded text-red-700">Network error: ${err.message}</div>`;
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = '/login.html';
+        }
+    </script>
+</body>
+
+</html>
